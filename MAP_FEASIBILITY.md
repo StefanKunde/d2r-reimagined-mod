@@ -1,6 +1,6 @@
 # MAP_FEASIBILITY – Neue Gebiete (Maps/Areas) für D2R Reimagined
 
-Phase 1 (nur Analyse). Stand: 2026-10-04. Basis: Branch `next` @ `bba512f` (identisch mit `origin/next`),
+Phase 1 (nur Analyse) + **Phase 1b „Fahrender Händler“ (Abschnitt 11)**. Stand: 2026-10-04. Phase 2 (Gebiet) ist **pausiert**, bis die Händler-Frage geklärt ist. Basis: Branch `next` @ `bba512f` (identisch mit `origin/next`),
 SDK-Klon `../PluginSDK` @ `717f727` (SDK 0.3.0, Plugin-ABI 4). Es wurde **keine bestehende Datei geändert**
 (einzige Nebenwirkung: die flache Git-Historie wurde per `git fetch --unshallow` vervollständigt – nur `.git`,
 2020 Commits; sie liefert die wichtigsten Belege dieses Berichts).
@@ -287,9 +287,19 @@ Was das Plugin sinnvoll **ergänzen** könnte (alles optional, kein Muss): per `
 | **Custom-Tabellen im SDK**: ≤ 349 Spalten, 1 MiB/Zeile | `custom_tables.h` |
 | Terror-Zonen kennen nur die in `desecratedzones.json` aufgeführten `level_id`s (≤ 132) | `desecratedzones.json` |
 
+**[EXTERN BELEGT – Phase 1b, nicht selbst verifiziert]** Community-Reverse-Engineering der RuffnecKk-Suite (`RuffnecKk-D2RLoader-Suite/research/d2r/findings.md:3332-3480`, `known-rvas.json`; getestet auf D2R 3.3.93847 / 3.2.92777; Quellen dort selbst als „Static findings and historical runtime observations prove only their documented scope“ markiert). Sie präzisieren und **korrigieren Annahmen dieses Berichts**:
+| Grenze | Aussage der Suite-Research |
+|---|---|
+| **Max. 1023 Level-Zeilen** (kanonische, zusammenhängende Ids 0–1022) | Vergleich `cmp [Levels+0x1468], 0x400` an RVA `0x330446`; Classic/LoD-Bank hatte dort 137 Zeilen, RotW 147 |
+| **Act wird aus der Level-Id über ActInfo-Bereiche aufgelöst** | `DRLG_ResolveActFromLevelId` (RVA `0x326710`) läuft `ActInfo`-Records rückwärts und vergleicht die Level-Id mit `rangeStart`; D2MOO 1.10f nutzte feste Schwellen `{1,40,75,103,109,1024}`. **Folge:** Ein neues Level landet automatisch im letzten Act (Act 5), solange seine Id ≥ 109 ist; ein neues Level in Act 1–4 mit Id > 137 würde als Act 5 aufgelöst. Die Suite-Plugin `extended-act-level-ids` („Allows new levels to belong to any act“) patcht genau das – laut Audit-Dokument ist es aber aus dem aktiven Katalog entfernt (`research/d2rloader-1.3-public-audit.md:16`), Status unklar. |
+| **Town Portal / Red Portal in Level-Ids > 255 crasht (Assertion)** | `BC_ASSERT: eLevelIdLocal <= 255` in `D2GAME_CreateLinkPortal` (RVA `0x435DD0`); Portal-Zustand (`InteractType`) ist 1 Byte. **Folge für Phase 2:** neue Level-Ids bei ≤ 255 halten (Id 138 ist unkritisch). |
+| Sichtbarkeits-Pakete `0x07/0x08` transportieren Level-Id nur als Byte | ebenfalls ab Id 256 problematisch (Suite löst das mit eigenem Codec) |
+
+→ Praktisch gilt für neue Gebiete: **Act 5, Id 138–255** ist der belegt unkritische Bereich; alles andere braucht Engine-Patches.
+
 [ANNAHME – nicht belegt]
-- Absolute Maximalzahl Levels/Ids im Engine-Code (z. B. 8-/16-Bit-Grenzen, Array-Größen); ob Lücken in der Id-Folge erlaubt sind (die Id-Spalte ist explizit, aber der kompilierte Zeilenindex ≠ Id).
-- Dass ein Level mit anderer `Act`-Zuordnung als sein Zugangs-Level problemlos ist (Pandemonium 133–135 sind Act 5, nutzen aber Act-1/2/5-Level-Typen – gespielt aus Act 5 heraus, `levels.txt:136-138`).
+- Ob Lücken in der Id-Folge erlaubt sind (die Suite-Research spricht von „zusammenhängenden“ Ids `0..1022`; die Id-Spalte ist explizit, aber der kompilierte Zeilenindex ≠ Id).
+- Dass ein Level mit anderer `Act`-Zuordnung als sein Zugangs-Level problemlos ist (Pandemonium 133–135 sind Act 5, nutzen aber Act-1/2/5-Level-Typen – gespielt aus Act 5 heraus, `levels.txt:136-138`). Zur Act-Auflösung siehe oben.
 - Rolle von `Layer`, `Position`, `Depend`, `Teleport` und genaue Semantik von `OffsetX/Y` (nur Nutzung beobachtbar).
 - `DrlgType`-Bedeutung 1/2/3 = Maze/Preset/Outdoor (aus den Tabellenzuordnungen eindeutig abgeleitet, Namen aber Allgemeinwissen).
 - DS1-Format/Editoren, HD-Preset-Fallback bei fehlendem JSON, Wirkung von `combined_ds1.bin`.
@@ -311,9 +321,12 @@ Was das Plugin sinnvoll **ergänzen** könnte (alles optional, kein Muss): per `
 | **R8** | Balance/Monster | niedrig | Monsterlisten/-level pro Schwierigkeit (`mon/nmon/umon`, `MonLvl*`). |
 | **R9** | Multiplayer-Kompatibilität | mittel | Daten sind Teil der Mod → Spieler brauchen identische Mod-Version; ein **Server-/Shared-Plugin** verschärft das (Pflicht-Match). |
 | **R10** | Linter nicht ausführbar | niedrig | Nur Windows; Ersatz: eigenes Python-Check-Skript. |
+| **R12** | **Act-Auflösung per Id-Bereich / Id ≤ 255** (neu in Phase 1b, extern belegt, siehe Abschnitt 7) | mittel | Neue Gebiete nur in Act 5 und mit Id 138–255 anlegen, sonst Engine-Patch nötig (Town-Portal-Assertion ab 256, Act-Fehlzuordnung bei Act 1–4). |
 | **R11** | Verwaiste Altlasten | niedrig | `pzboss1/pzend.ds1`, `labyrinth*.ds1` + 3 Presets, `lvlwarp.txt:91`, deaktivierte Cube-Rezepte. Nicht anfassen (Regel: nichts löschen), aber nicht versehentlich wiederverwenden. |
 
 ### Offene Fragen (bitte vor/zu Phase 2 beantworten)
+
+> **Stand nach Phase 1b – Antworten des Nutzers:** (6) Push-Ziel: auf `claude/eloquent-ride-s83hfc` pushen; die Übernahme nach `feature/new-area-prototype` macht der Nutzer selbst. (1–5) Gebiets-Phase 2 ist **pausiert**, bis die Händler-Frage geklärt ist; falls sie doch kommt: wiederverwendete Layouts, Cube-Portal, englischer Text in allen Sprachen, Pitzilla/Labyrinth unberührt. (7) Plugin wird **nicht gestrichen, sondern auf den Händler umgewidmet** (Abschnitt 11). `MAP_FEASIBILITY.md` darf auf dem Claude-Branch committet werden (Ausnahme vom ursprünglichen „nicht committen“).
 1. **Zugang:** Cube-Portal (empfohlen) oder fester Eingang (Stadt-Tor/Level-Ausgang)?
 2. **Layout:** Reicht Wiederverwendung eines vorhandenen Basisspiel-DS1 / ein Maze-Level, oder willst du ein *eigenes* Layout (dann externer DS1-Editor, außerhalb dieser Sandbox)?
 3. **Id-Strategie:** Zusammenhängend ab **138** (empfohlen; Lücken unbelegt) – und soll das Reimagined-Team (Discord `collin.h`, laut README) vorab einen Id-Block reservieren?
@@ -332,7 +345,7 @@ Was das Plugin sinnvoll **ergänzen** könnte (alles optional, kein Muss): per `
 **Variante B (optional, zweiter Schritt): Maze-Level** (`DrlgType=1`, zufälliger Dungeon aus vorhandenen Tiles, kein DS1) nach Muster Pitzilla 1.
 
 ### Schritte (Variante A) – jeweils in `excel/` **und** `excel/base/`, Zeilenenden je Datei erhalten
-1. **`levels.txt` + `base/levels.txt`**: neue Zeile **am Ende** (nach Zeile 140; `levels.txt` CRLF, `base/` LF). Aus **Zeile 139 (Id 136)** klonen, per **Spaltenname** setzen: `Name = Act 5 - Reimagined Testgrounds`, `*StringName`, `Id = 138`, `Act = 4`, `OffsetX/Y = 5000/3000` (freie Stelle, nach Finale 5000/1000 und Colossal 5000/2000), `Vis/Warp = 0/-1`, `Waypoint = 255`, `LevelName/LevelWarp/LevelEntry` = neue Keys, `LevelGroup = Act 5 - Reimagined Testgrounds`, `PreventTownPortal = 1`. Monsterlisten aus Tristram (Zeile 40) übernehmen, `NumMon`/`MonLvl*` setzen, damit etwas spawnt.
+1. **`levels.txt` + `base/levels.txt`**: neue Zeile **am Ende** (nach Zeile 140; `levels.txt` CRLF, `base/` LF). Aus **Zeile 139 (Id 136)** klonen, per **Spaltenname** setzen: `Name = Act 5 - Reimagined Testgrounds`, `*StringName`, `Id = 138` (≤ 255 und Act 5, siehe R12), `Act = 4`, `OffsetX/Y = 5000/3000` (freie Stelle, nach Finale 5000/1000 und Colossal 5000/2000), `Vis/Warp = 0/-1`, `Waypoint = 255`, `LevelName/LevelWarp/LevelEntry` = neue Keys, `LevelGroup = Act 5 - Reimagined Testgrounds`, `PreventTownPortal = 1`. Monsterlisten aus Tristram (Zeile 40) übernehmen, `NumMon`/`MonLvl*` setzen, damit etwas spawnt.
 2. **`lvlprest.txt` + `base/lvlprest.txt`**: neue Zeile **am Ende** (nach Zeile 1094): `Def = 1092`, `LevelId = 138`, `File1` = DS1-Pfad aus Zeile 1093 (`Act1/Tristram/Tri_Town4.ds1`) bzw. – falls ein „neutraleres“ Layout gewünscht – ein anderer in `lvlprest.txt` bereits referenzierter Basisspiel-Pfad; `Dt1Mask` von der Quellzeile kopieren.
 3. **`levelgroups.txt` + `base/levelgroups.txt`**: neue Zeile am Ende (nach Zeile 102): Gruppe `Act 5 - Reimagined Testgrounds`, `CompleteThreshold=100`, `NameString` = neuer Key.
 4. **`data/local/lng/strings/levels.json`**: 3 neue Einträge (`LevelName`, `LevelWarp`, `LevelEntry`) am Ende; Ids im Reimagined-Block ab **54000** (`fill-in-ids.js`), 13 Sprachen; Format wie `levels.json:7125-7175`. Muss `Json/KeyUsage` bestehen (Keys werden in `levels.txt`/`levelgroups.txt` referenziert).
@@ -354,3 +367,161 @@ Was das Plugin sinnvoll **ergänzen** könnte (alles optional, kein Muss): per `
 - Historische Zustände: `git show 7f0ed3b3[^]:<pfad>`, `git log -S"…"` (Pickaxe) für „erstmals eingeführt“-Aussagen.
 - SDK: alle Aussagen mit Datei(:Zeile) aus `../PluginSDK/README.md` und `include/D2RLPlugin/*.h`.
 - Nicht geprüft: In-Game-Verhalten, Linter-Ausgabe, DS1-/DT1-Inhalte (Binärdateien), Blizzard-Basisdaten.
+
+
+---
+
+## 11. Fahrender Händler (Phase 1b – nur Analyse)
+
+**Anforderung (Kurzform):** Ein Händler erscheint alle X Spielminuten in einer bestehenden Stadt, ist ansprechbar, öffnet ein Shop-Fenster;
+Angebot pro Besuch zufällig (z. B. 3 normale, 3 Exceptional, 1–2 Elite-Uniques/Sets), **fester Preis in Runen**, nach X Minuten Wechsel,
+Ankündigung im Chat, Bestand stabil pro Besuch (kein Reroll durch Verlassen/Neuladen).
+
+Zusätzlich zu SDK und Mod-Daten wurden **zwei Community-Repos gelesen** (read-only geklont, Nachbarverzeichnisse):
+`../RuffnecKk-D2RLoader-Suite` (@`6a2b369`, 2026-10-03; vom Nutzer genannt) und – weil die Suite es als Referenz zitiert (`research/references.json:46-52`) –
+`../D2RL-Plugins` (eezstreet, offizielles Plugin-Pack, Shallow-Clone).
+
+### 11.0 Kurzfazit
+
+**Machbar – aber nicht als „echter NPC“, sondern als *virtueller Händler* (Panel + Plugin) auf der SDK-Ebene.** Ein echter, ansprechbarer NPC-Körper
+mit nativem Shop ist mit der öffentlichen API **nicht** machbar und selbst mit nativen Hooks Neuland (keine dokumentierte Funktion zum Erzeugen von
+Monstern/NPCs in beiden Referenz-Repos). Der Runen-Preis ist über Tabellen **unmöglich** (Währung ist fest Gold), über das SDK dagegen sauber lösbar
+(Item-Transaktion: Runen verbrauchen → Item erzeugen). Eine Datenebenen-Notlösung (Cube-Rezepte) ist möglich, kennt aber weder Timer noch Zufall noch Bestand.
+
+| Baustein | Urteil | Kern der Begründung |
+|---|---|---|
+| **Timer** (alle X Min.) | **machbar** | Kein Timer-Service im SDK, aber Overlay-Frame-Callback (`deltaTimeSeconds`, `overlay.h:63-70`) und Windows-Uhr genügen. „Spielminuten“ muss definiert werden (Echtzeit bei laufendem Spiel vs. Wanduhr). |
+| **Spawn** eines NPC | **nicht machbar (jetzt)** | SDK: nur `EncounterService::runTestSpawn` (Boss-/Herald-Testspawns). Native: in `known-rvas.json` (1046 Einträge) existieren Item-, Portal-, Store- und NPC-Menü-Funktionen, **keine** zum Erzeugen von Monstern/NPCs. Eigener Reverse-Engineering-Aufwand, build-gebunden. Alternative: virtueller Händler ohne Körper. |
+| **Chat-Ankündigung** | **eingeschränkt** | Kein Chat-Senden im SDK. Möglich: lokale Konsole (`WriteConsoleMessage`) und Overlay-Text/-Toast; im Mehrspielerspiel Host→Clients per `NetworkService`-Nachricht, die jeder Client lokal anzeigt. |
+| **Shop-UI** | **machbar (eigenes Panel), nicht über den nativen Vendor** | Nativer Vendor-Panel ist per SDK weder abfangbar noch ersetzbar (`item_interactions.h:67-71`: Vendor-Interaktionen werden nicht gemeldet). Eigenes Panel + Item-Grid + Tooltip-Listener + Item-Interaction-Listener sind SDK-Funktionen. |
+| **Runen-Preis** | **machbar (Plugin) / unmöglich (Tabellen)** | Tabellen: nur Gold (`npc.txt`, `cost`). Plugin: `ItemService::executeTransaction` verbraucht Runen und erzeugt das Item atomar (`item.h:263-290`). |
+| **Bestand / Persistenz** | **machbar** | Items in einer *Custom Player Page* werden mit dem Charakter gespeichert (`inventory.h:125-127`); zusätzlich lässt sich das Zeitfenster deterministisch aus der Uhr ableiten (kein gespeicherter Zustand nötig). Per-Charakter-Zustand gibt es sonst nicht im SDK. |
+| **Elite-Uniques/Sets im Angebot** | **machbar (Plugin) / unmöglich (Vendor-Tabellen)** | `createItem` mit `Quality::Unique/Set` + `qualityRecordId` (`item.h:171-203`); Vendor-Tabellen kennen nur normal/magic. |
+| **Mehrspieler** | **eingeschränkt** | Item-Änderungen nur lokal/auf dem TCP/IP-Host; Clients melden per Plugin-Nachricht (`README.md:720`); nicht auf Battle.net (`README.md:1015`). |
+
+### 11.1 Plugin-SDK (0.3.0, ABI 4): Matrix a–g
+
+Legende: **vorhanden** = Funktion in öffentlichem Header · **nur lesend** · **nicht vorhanden** (Header-Suche nach `timer|tick|chat|npc|vendor|shop|merchant|gold|spawn|persist|serial|dialog|talk|clock|gameTime` ergab nur die unten genannten Treffer).
+
+| # | Fähigkeit | Status | Beleg (SDK) |
+|---|---|---|---|
+| a1 | **Timer/Tick-Callbacks** | **nicht vorhanden** als Service. Ersatz: `OverlayService` ruft pro Frame `FrameCallback` (UI-Thread, `frameNumber`, `deltaTimeSeconds`) – **[ANNAHME]** nur solange der Loader das Overlay zeichnet (`README.md:472-475`: „The loader decides when drawing runs“). `ThreadService::runOnGameThread` stellt **einmalige** Callbacks „in ein späteres autoritatives Game-Update“ ein (erneutes Einreihen = Tick; nicht auf TCP/IP-Clients). | `overlay.h:63-70,95`, `threads.h:26-31,44` |
+| a2 | **Zugriff auf Spielzeit** | **nicht vorhanden** (kein Frame-/Game-Tick-Zähler, keine Tageszeit). Nur Lifecycle-Ereignisse (GameJoined/GameLeft/LocalPlayerReady/ActChanged/LevelChanged) und Echtzeit über die Windows-API im Plugin selbst. | `lifecycle_events.h:30-45` |
+| b | **NPC/Monster spawnen & entfernen** | **nicht vorhanden.** Nur `EncounterService`: Herald-/Boss-*Entscheidungen* (`registerProvider`) und `runTestSpawn` (Testspawns `HeraldReplacement/BossClones/HeraldBossGroup`, braucht rohen `D2R::Game::Client*`); kein Entfernen. | `encounters.h:124-168` |
+| c | **Chat-/Systemnachrichten senden** | **nicht vorhanden** (kein Chat). **Vorhanden:** lokale Konsole `WriteConsoleMessage(kind)` (Output/Debug/Warning/Error) und `ExecuteConsoleCommand` (Core-Export 14, schaltet kurz das Cheat-Flag), Overlay-Text (`TextRequest`, ≤ 4096 B), `NetworkService`-Nachrichten (≤ 224 B, Host→Client, nicht Battle.net). | `console.h:22,110`, `core_exports.h:36,177`, `overlay.h:136`, `network.h`, `README.md:1013-1015` |
+| d | **Dialog mit NPC abfangen / Shop-UI öffnen oder ersetzen** | **nicht vorhanden** für native NPC/Vendor. `ItemInteractionService` meldet ausdrücklich **keine** Vendor-/Trade-/Corpse-Interaktionen. `SharedEventService::registerUiMessageListener` sieht *UI-Nachrichten* (Target/Command/Text) und darf sie „konsumieren“ – ob ein Vendor-Kauf eine solche Nachricht ist, ist nicht belegt (**[ANNAHME]**: eher nicht; belegt ist nur `VendorPanelMessage:RefreshAll`, siehe 11.4). **Vorhanden:** eigene Panels (`PanelService`, Layout-JSON, `GameplayLeftSlot` = Plugin-Panel links + Inventar rechts), `WidgetService` (finden, sichtbar/aktiv schalten, UI-Action senden; **kein `setText`**), Controls-Aktionen (Hotkey), Konsolenbefehle. | `item_interactions.h:67-71`, `shared_events.h:124-130`, `panels.h:52-53,131-140`, `widgets.h`, `input.h` |
+| e1 | **Inventar/Items erzeugen** | **vorhanden** – `createItem` (Code, Qualität, Set/Unique-Zeile, Affix-Ids, Item-Level, Sockets, Ethereal, Eigenschaften) in Inventar/Cube/Stash/Custom-Page/Cursor/**Boden**; Unique-„einmal pro Spiel“-Regel per Flag `AllowDuplicateUnique` aufhebbar. Nur lokal bzw. TCP/IP-Host (`NotAuthoritative` auf Clients). | `item.h:61-76,86,171-203,476-478`, `README.md:716-766` |
+| e2 | **Items im „Shop“ anlegen** | **vorhanden als Custom Player Page** (1–16 × 1–16 Zellen, an ein `InventoryGridWidget` des eigenen Panels bindbar; Item-Policy bestimmt, was hinein darf). Kein Eingriff in nativen Vendor-Bestand. | `inventory.h:129-163,196-202`, `panels.h` (`bindPlayerPageGrid`), `README.md:679-715` |
+| e3 | **Gold- vs. Rune-Abzug** | **vorhanden als Tausch-Primitiv:** `executeTransaction` (bis 64 Eingänge/Ausgänge; Eingänge ganze Items oder Stack-Teile, Ausgänge neu erzeugt; alles-oder-nichts) bzw. `executeExistingItemTransaction` (Debit/Edit/Move bis 4096 Operationen). **Nicht vorhanden:** Umbiegen der *nativen* Gold-Abbuchung des Vendors. | `item.h:17-19,244-290,311-337` |
+| f | **Persistenz (Speichern/Laden)** | **teilweise:** Items auf Custom Pages werden von D2RLoader beim Laden wiederhergestellt („save/load protected“); Plugin-Konfig `ReadConfig/WriteConfig` ist **eine globale TOML pro Plugin**, nicht pro Charakter; Plugin-Historie im Charakter ist nur Metadatum. **Nicht vorhanden:** Key-Value-Speicher pro Charakter. | `inventory.h:125-127`, `context.h` (`ReadConfig/WriteConfig`), `README.md:92-98,193-196` |
+| g | **UI-Overlay / Controls** | **vorhanden:** `OverlayService` (Linien, Rechtecke, Text, Clip; **nur Anzeige**, kein Input), `InputService` (benannte Aktionen im Controls-Menü, nur Tastatur laut Suite-README), Panels/Widgets, Tooltip-Erweiterung (`SharedEvents::ItemTooltipListener`: eigene Zeilen in Item-Tooltips, z. B. „Preis: 2× Ith“). | `overlay.h`, `input.h`, `shared_events.h:111-123`, Suite-`README.md:119-120` |
+
+**Folgerung:** Ein vollständiger Shop lässt sich **ausschließlich mit SDK-Services** bauen (Panel + Custom-Page-Grid + Tooltip-Preis + Item-Interaction + Item-Transaktion + Overlay-Toast + Timer über Frame-Callback). Das ist der einzige Pfad, der **nicht** build-spezifisch ist (Services werden per Version/Größe verhandelt, `README.md:276-286`).
+
+### 11.2 Datenseite im Mod: wie Shops definiert sind
+
+[BELEGT im Repo]
+- **`data/global/excel/npc.txt`** (1 288 B, 17 Zeilen: `gheed, charsi, akara, lysander, drognan, elzix, fara, hratli, alkor, ormus, asheara, jamella, halbu, malah, drehya, larzuk, nihlathak`): Spalten `buy mult`, `sell mult`, `rep mult`, Quest-Varianten A–C, **`max buy` (N/H)**. **Keine Währungsspalte** – Preise sind Gold.
+- **Sortiment steckt in den Item-Tabellen:** `armor.txt` (Spalten 75–159), `weapons.txt` (77–161), `misc.txt` (77–161): je Händler `<Npc>Min`, `<Npc>Max`, `<Npc>MagicMin`, `<Npc>MagicMax`, `<Npc>MagicLvl` (z. B. `CharsiMin` … `AnyaMagicLvl`). Preis = `cost` (+ `gamble cost`, `multibuy` in `misc.txt:170`).
+  → **Genau diese 17 Händler können Stock haben; die Spalten sind fest verdrahtet.** Ein *neuer* Händler-NPC kann per Tabelle **keinen eigenen** Stock bekommen (nur einen vorhandenen mitbenutzen) **[ANNAHME zu neuen NPC-Ids; belegt ist nur das 17er-Schema, auch in `D2RL-Plugins/.../plugin-shared.h:208-213` (`nVendorMin[17]` usw.)]**.
+- **Vendor-Qualität:** Stock ist normal/magic (offizielles Plugin kann optional „Rare“ zuschalten, `D2RPlugins.json` `vendorOverhaul.randomRareItems`). **Unique/Set im Vendor-Stock existieren nicht** – dafür bräuchte man Gamble (`gamble.txt`, zufällig, Gold) oder Code.
+- **Währung:** `cost` in Gold; Runen sind in `misc.txt` nicht stapelbar (`stackable=0`, `misc.txt:105,110,137`) und haben Gold-Werte (El 560, Ith 2240, Zod 134 540) – ein „Rune-Preis“ per Tabelle ist nicht darstellbar.
+- **NPC-Definition:** `monstats.txt` (78 Zeilen mit `npc=1` oder `inventory=1`); relevante Spalten `AI` (z. B. `Npc`), `npc` (79), `interact` (80), `inventory` (81), `inTown` (82). Strings: `NameStr` → `monsters.json`. **Dialoge/Menüeinträge sind nicht in Tabellen**, sondern in einer nativen Aktions-Registry (72 Byte/NPC; Suite-Research `known-rvas.json: CLIENT_BuildNpcInteractionMenu`).
+- **Platzierung/Zeitsteuerung:** `monpreset.txt` bildet DS1-Platzhalter auf NPCs ab (`Act`, `Place`, `DS1 ID#`; z. B. Act 1: `gheed, cain1, akara, kashya, warriv1, charsi …`) – **statisch**. `actinfo.txt:1` kennt `wanderingnpcstart/-range` (Act 1: 0/1, übrige 0/0); die zugehörige `WanderingMon`-Tabelle liegt **nicht** im Repo (Basisspiel) → nicht analysierbar. **Keine** datengetriebene Möglichkeit für „erscheint alle X Minuten“.
+
+Wiederverwendbare Stadt-NPCs (aus `monstats.txt` `npc=1`, `inTown=1`, abgeglichen mit `npc.txt`) – **als Körper/Name, nicht als Shop-Logik**.
+Achtung: `inventory=1` in `monstats.txt` heißt **nicht** „hat Shop“ (u. a. `warriv1/2`, `atma`, `meshif1/2`, `greiz` tragen es, stehen aber nicht in `npc.txt`); **echte Händler = die 17 Namen in `npc.txt`**.
+
+| Act | Händler (in `npc.txt` → Stock-Spalten vorhanden) | NPCs ohne Stock (Dienste/Dialog/Deko) |
+|---|---|---|
+| 1 | gheed, charsi, akara | warriv1 (Reise), cain1, kashya, rogue1/3 (Dummy) |
+| 2 | lysander, drognan, elzix, fara | warriv2, atma, meshif1, greiz, geglash, jerhyn, cain2, act2male/-female/-child, act2vendor1/2 (`AI=Vendor`, ohne Stock) |
+| 3 | hratli, alkor, ormus, asheara | meshif2, cain3, natalya, act3male/-female |
+| 4 | jamella, halbu | malachai, tyrael2, cain4 |
+| 5 | malah, drehya, larzuk, nihlathak | qual-kehk, cain6, tyrael3 |
+
+Vorschläge: Für ein *thematisches* Händler-Modell eignen sich NPC-Rows mit `AI=Towner`/`Vendor` (z. B. `act2vendor1/2`) – sie sind in `monpreset.txt` bereits platziert (Act 2) und tragen **keinen** nativen Shop; ihr Name kann über `monsters.json` geändert werden. **[ANNAHME]**: ob ein solcher NPC ansprechbar gemacht werden kann, ohne Hook, ist nicht belegt (`interact` ist bei `act2vendor1/2` leer).
+
+### 11.3 Fallback ohne Plugin: Horadric Cube als „Händlertisch“
+
+[BELEGT] `cubemain.txt`: 15 900 Rezepte, 106 Spalten. Header: `description, enabled, firstLadderSeason, lastLadderSeason, min diff, version, op, param, value, class, numinputs, input 1 … input 7, output, lvl, plvl, ilvl, mod 1–5 (chance/param/min/max), output b, output c …, *eol`.
+- **Verwendete `op`-Werte:** 18 (14 396×), 16 (341×), 15 (207×), 17 (19×), **28 „Special“ (7×)**, leer (930×). Native, in Reimagined **ungenutzte** Bedingungen laut Linter-Config (`lint/config.json`, `cubeOps`): `1` Tag-des-Monats-Fenster, `2` Wochentag, `3–14` Spieler-Stats, `15–27` Stats/Mod-Klasse des ersten Inputs.
+- **Rune-Rezepte:** 3 890 Rezepte mit Runen-Inputs (ohne „CORRUPT…“), z. B. `cubemain.txt:290` `amu,mag + r06(Ith) + r01(El) → usetype,mag`; **feste Unique-Ausgabe per Namen:** `cubemain.txt:303` `rin,mag + jew,rar + r07 + r08 + r09 → Barilzar's Mazed Band`.
+- **Portal-Rezept (Colossal Summit):** `cubemain.txt:688` – `op=28`, `numinputs=5`, Inputs `ua1…ua5`, Output `Red Portal,lvl=137,qty=1`, `min diff=2`; (Pitzilla-Altlasten `:689-690`, `enabled=0`).
+
+| Was mit Cube-Rezepten geht | Was nicht geht |
+|---|---|
+| **Fester Rune-Preis:** `r0x + r0y (+ Token) → festes Zielitem` (Unique/Set per Namen, Exceptional/Elite-Basis per Code), unbegrenzt oft, überall mit Cube | **Kein Timer**, kein Erscheinen/Verschwinden, **keine Ankündigung** |
+| **Zugangsbeschränkung** über Spieler-Stats (`op 3–14`, z. B. Level/Klasse) oder **Realkalender** (`op 1/2`: Tag/Wochentag) → grobe „Händler-Tage“ (aus Systemdatum, **manipulierbar** – [ANNAHME]) | **Kein Zufallsangebot pro Besuch** – Ergebnis ist je Rezept deterministisch (Zufall nur *innerhalb* eines Ausgabeitems, z. B. Affixe, `usetype`) **[ANNAHME zu „erstes passendes Rezept gewinnt“]** |
+| Rezepte als Datenänderung (`cubemain.txt` + `base/cubemain.txt`, CRLF/LF beachten) – **keine Plugin-Pflicht, kein Hooking** | **Kein Bestand** (nie ausverkauft), keine Händler-Optik/-Fenster |
+| Katalog „Händlertisch“ = Menge fester Rezepte (Obergrenze nur durch Tabellengröße) | Preis in *Runen-Anzahl* nur über mehrere Input-Slots (max. 7 Inputs); nicht stapelbare Runen → N Einzelitems |
+
+Fazit Cube: Taugt als **dauerhafter Rune-Shop ohne Zufall/Timer** (Stufe „C0“), nicht als Händler-Erlebnis.
+
+### 11.4 Referenz: was die Community-Suite tut (und was daraus für Spawn/Shop folgt)
+
+**Stand:** RuffnecKk-Suite 1.4.2 (2026-09-20, Quellstand 2026-10-03), 22 Plugins + 18 Memory-Patches; Voraussetzungen **D2R 3.3.93847, 3.2.92777 oder Steam 3.3.93787** und **D2RLoader 1.3** (`README.md:21-25`). Das passt zur Reimagined-Datenbasis: `data/global/dataversionbuild.txt` = `93847` **[BELEGT, Querbezug]**. Installation global (`<D2R>/d2rloader/`) **oder** mod-spezifisch (`<D2R>/mods/<mod>/d2rloader/`), „nie beides gleichzeitig“.
+
+**Wie sie Items bewegen/ändern – SDK-API vs. Memory-Patch** (Auszählung über `plugins/*/src/*.cpp`, 27 Plugin-Ordner):
+- **Alle 27** setzen mindestens einen **Inline-Hook auf feste RVAs mit Erwartungsbytes** ein (Fingerprint-Prüfung, bei Abweichung wird das Plugin verweigert); **nur `mass-identify`** nutzt `ItemService`/`InventoryService` (13/15 Verweise).
+- **Bulk Currency Deposit** („Automatic Materials Deposit“): SDK-Panel/Input/Thread **plus** 2 Hooks und rund 58 RVA-Verweise im Quelltext; Items wandern über die *native* Advanced-Stash-Routine (`TransferItemToInventoryPage` `0x15F8B0`, `GetAdvancedStashDestination` `0x46DA50` …), nicht über `ItemService.executeExistingItemTransaction`.
+- **Potion Auto Pickup / Cube Quick Move / Equipped Item to Cube:** je 1–5 Inline-Hooks auf native Inventar-/Pickup-Funktionen.
+- **Vendor Stock Refresh:** 4 Inline-Hooks (`ConfigureVendorInteraction 0x502F60`, `EntityAction 0x4B0470`, `ConfigureVendorPanel 0x2411E0`, `SendVendorRefresh 0x10F520`) – baut einen Reroll-Button in den nativen Vendor-Panel und sendet Paket-Opcode `0x38` (9 Byte `{opcode, action, npcGuid}`).
+- Wichtiger Kontext: Die Suite **vendort die SDK-Versionen v3 (`4933e2c`) und v4 (`6eb8f8b`)** (`research/d2rloader-1.3-public-audit.md`). In diesen Ständen gab es `ItemService` (Id 15, schon in v3) und `ItemInteraction` (v4) bereits; **neuer** sind `Encounter` (2026-09-20), `Mutation`, `Overlay`, `PluginCommunication` (2026-09-22, SDK-Commits `46ba079`/`4aec92a`) sowie die Erweiterungen `splitStack`/Shared-Stash-Writes/`augmentItemAffix`. Die Hook-Lastigkeit der Suite spiegelt also **überwiegend echte API-Lücken** (Pickup, Vendor, Schaden, Karten) und nur zum Teil SDK-Alter – sie ist **kein** Beleg, dass `ItemService`-basierte Tauschlogik nicht trägt; sie ist aber ein Beleg, dass diese Tauschlogik in der Suite **kaum praktisch erprobt** ist (nur `mass-identify`).
+
+**Was sich daraus für Spawn/Shop ableiten lässt**
+1. **Nativer Vendor ist serverseitig und dokumentiert**: Pro NPC ein `VendorChainEntry` (0x78 B, gefüllt-Flag `+0x34`, Refresh-Flag `+0x35`, Zeitstempel `+0x38`); `D2GAME_NPC_FillStoreInventory 0x53C9F0`, `GenerateStoreItem 0x540EA0`, `ClearVendorInventory 0x502F00`. **Der native Stock hat bereits einen Timer:** `UpdateVendorRefreshState 0x503290` setzt per `GetTickCount64` nach 240 000 ms (4 min) das Refresh-Flag (`known-rvas.json`; Quelle: Research, Build 92777). Das offizielle Pack (`D2RL-Plugins/src/plugin-items/items-main.cpp:287-376`) **schreibt `FillStoreInventory` in C++ neu** (Vendor-Overhaul) – ein Plugin kann also Stock-Erzeugung ersetzen, aber nur für die 17 festen Vendor-Slots und mit den nativen Qualitäten.
+2. **Gold-Abzug ist eine einzelne Server-Funktion:** `D2GAME_NPC_TryDeductGold 0x5416D0 (game, player, amount)`. Sie auf Runen umzubiegen wäre ein Hook – **aber** die **Client-UI zeigt weiter Gold-Preise**; ein sauberer Rune-Preis im nativen Vendor-Fenster erfordert Client- *und* Server-Hooks plus Preisanzeige (hoch riskant, build-gebunden). Das SDK-Transaktionsmodell (11.1 e3) ist klar überlegen.
+3. **NPC-Menü ist hookbar, aber nativ:** Client baut das Menü aus einer 72-Byte-Aktions-Registry (`CLIENT_BuildNpcInteractionMenu 0x1147A0`, `UI_AddNpcMenuEntry 0x1E9030`); Server-Callbacks `0x34/0x38/0x39` sind autoritativ. Einen eigenen Menüeintrag („Händler: Angebot ansehen“) zu ergänzen ist denkbar, bleibt aber Native-Hook-Arbeit.
+4. **Spawn:** Aus beiden Repos ableitbar sind nur **Item-Erzeugung** (`ITEMS_CreateItemUnit 0x43D530`), **Portal-Objekte** (`D2GAME_CreatePortalObject 0x432CE0`) und die interne `spawn`-Konsole für *Items* (`research/cheat-spawn.md`: `spawn <code>,qty=…,typ=u,lvl=…,inv=1`, Boden/Inventar). **Kein Monster-/NPC-Spawn.** Das ist die größte Lücke für einen „echten“ Händler.
+5. **Persistenz-Muster der Suite:** nur Plugin-TOML (`WriteConfig` in `floating-damage`, `mapsense`), kein Per-Charakter-Speicher; das große Persistenz-Plugin ISC12 (rund 578 RVA-Verweise, 11 Patch-Aufrufe) erweitert das Speicherformat und ist als *Risikobeispiel* zu lesen („Requires ISC12-compatible save files“).
+6. **Reife-Hinweis der Autoren:** „current source changes are not a new Suite release or a claim that every component has completed runtime testing“ (`README.md`); Audit: „Gameplay, save/reload and multiplayer remain untested“ für Loader 1.3 (`research/d2rloader-1.3-public-audit.md`). **Alles Native ist hier build-gepinnt und nur punktuell runtime-getestet.**
+
+### 11.5 Risiken (Händler)
+
+| # | Risiko | Einstufung | Hinweis |
+|---|---|---|---|
+| H1 | **Spiel-Updates** (Blizzard-Patches ändern RVAs/Layouts) | SDK-Services: niedrig–mittel; Native Hooks: **hoch** | Services werden pro Version/Größe verhandelt (`README.md:276-286`) und Tabellenzeilen „für den laufenden Build“ gelesen (`README.md:1319`); Hooks brauchen Erwartungsbytes pro Build, die Suite pflegt 3 Builds. Reimagined-Daten sind an Build 93847 gebunden. |
+| H2 | **Build-spezifische Adressen** | hoch (nur Variante „echter NPC“) | siehe 11.4; keine Offsets im SDK. |
+| H3 | **Multiplayer/LAN** | mittel | Shared/Server-Plugins müssen zwischen Host und Clients übereinstimmen (`README.md:193-196`); Item-Änderungen nur Host/Lokal; `NetworkService` nur Plugin-Nachrichten ≤ 224 B; **nicht Battle.net**. Händler-Zustand muss vom Host kommen (Determinismus aus gemeinsamem Seed). |
+| H4 | **Kompatibilität mit Reimagined-Updates** | mittel | Unique/Set-Auswahl über `qualityRecordId` = *nullbasierte Zeile* in `uniqueitems.txt`/`setitems.txt` – **bricht, wenn Reimagined Zeilen einfügt/umsortiert**; besser Namen→Zeile beim Laden über `DataTableService` auflösen. Runen-/Item-Codes ändern sich selten, Preislogik gehört in eine plugin-eigene Tabelle. |
+| H5 | **Plugin-Zwang für Spieler** | mittel | Zusätzlicher Download (D2RLoader 1.3 + Plugin-DLL); mod-spezifischer Pfad `<D2R>/mods/Reimagined/d2rloader/plugins/` möglich; Reimagined-Launcher kennt das (noch) nicht **[ANNAHME]**. Koexistenz mit anderen Loader-Plugins (Suite-Changelog erwähnt Überschneidungen mit „CelestialRay's Suite“). |
+| H6 | **Exploits** | mittel | Items auf Custom Page dürfen nicht kostenlos entnehmbar sein (Item-Policy/`Consume` in `ItemInteractionListener`; Drag-&-Drop-Verhalten **nicht verifiziert**); Stock beim Weggang sauber entfernen (`destroyItem`), auch bei Spielabbruch; Wanduhr-Variante ist per Systemzeit manipulierbar; Unique-„einmal pro Spiel“-Regel. |
+| H7 | **Spiel-/Wirtschaftsbalance** | mittel | Runenpreise und Elite-Uniques/Sets im Handel verändern die Reimagined-Ökonomie (außerhalb dieser Analyse). |
+| H8 | **Nicht testbar in dieser Sandbox** | – | Linux, kein D2R, kein MSVC/Windows – alle Aussagen sind Quell-/Dokumentationsbefunde. |
+
+### 11.6 Architekturvarianten
+
+| Variante | Beschreibung | Aufwand | Risiko | Erfüllt Anforderung |
+|---|---|---|---|---|
+| **A – Virtueller Händler (SDK-only)** | Plugin: Timer + Overlay-Toast/Konsole („Der Händler ist da“), Panel (`GameplayLeftSlot`) mit Custom-Page-Grid, Stock per `createItem`, Preis im Tooltip, Kauf per `executeTransaction`/Item-Interaction | mittel | niedrig–mittel | alles **außer** „ansprechbarer NPC-Körper“ und „Chat“ (stattdessen Overlay/Konsole) |
+| **B – Cube-Händlertisch (Daten)** | Feste Rune-Rezepte in `cubemain.txt` (optional Kalender-`op`) | gering | niedrig | nur „fester Rune-Preis“; kein Timer/Zufall/Bestand |
+| **C – Echter NPC (Native)** | Hooks für NPC-Spawn, NPC-Menü, ggf. Vendor-Fill/Gold-Abzug | **sehr hoch** (Reverse-Engineering, kein Spawn-RVA bekannt) | **hoch** (build-gebunden) | vollständig – aber unbelegt machbar |
+| **D – Vorhandener NPC + Tabellenstock** | Vorhandenen Vendor (z. B. Halbu/Jamella) per `<Npc>Min/Max` umkonfigurieren | gering | niedrig | nur Gold, normal/magic, kein Timer – **keine** der Kernanforderungen |
+
+### 11.7 Empfohlener Stufenplan (kleinster testbarer Schritt zuerst)
+
+0. **Spike (1 Plugin, kein Gameplay):** Minimal-Plugin auf SDK 0.3.0 (Rolle `Client`/`Shared` klären), geladen aus `<D2R>/mods/Reimagined/d2rloader/plugins/`. Registriert Konsolenbefehl `merchant-status`, zählt über den Overlay-Frame-Callback Echtzeit und zeigt alle 60 s einen Overlay-Toast + Konsolenzeile. **Prüft:** Plugin-Laden in der Reimagined-Umgebung, Timer, Ankündigung, Verhalten bei Pause/Menü/Spielwechsel. *(Braucht Windows/MSVC; hier nicht baubar.)*
+1. **Statischer Shop:** Panel + Layout-JSON + Custom-Page-Grid; 3 feste Items per `createItem`; Preis als Tooltip-Zeile; Kauf = `executeTransaction` (n Runen → Item). Prüft Panel-Bedienung, Item-Interaction, Atomarität, „nicht kostenlos entnehmbar“.
+2. **Zufallsangebot + Rotation:** Angebot (3 normal / 3 Exceptional / 1–2 Elite-Unique/Set) deterministisch aus `Seed = f(Charakter, floor(Zeit/X))` → stabil bei Reload; Rotation, Ankündigung, Aufräumen beim Weggang; Namen→Zeile-Auflösung für Uniques/Sets (H4). Preis als plugin-eigene Custom-Table (`CustomTableService`, `d2rloader/<plugin-id>/…`).
+3. **Mehrspieler/TCP-IP:** Host-autoritativ (`NetworkService`), Clients nur UI; Matching-Konfiguration (`d2rl.match`).
+4. **Optional/gesondert entscheiden:** echter NPC (Variante C) erst nach einem **separaten Reverse-Engineering-Spike** (gibt es einen verwendbaren Monster-Spawn-Pfad? NPC-Menü-Eintrag?). Bis dahin ist der „Händler“ ein Panel mit Hotkey/Button und optionalem Mini-HUD.
+- **Parallel, unabhängig vom Plugin:** Stufe **C0** = Cube-Händlertisch (Variante B) als sofort liefernder Daten-Fallback.
+
+### 11.8 Offene Fragen an dich (Händler)
+
+1. **Sichtbarer NPC Pflicht?** Reicht ein „Händler ist da“-Panel (Hotkey/Button + Toast), oder muss der Händler als Figur in der Stadt stehen? *(Schlüsselfrage: A vs. C.)*
+2. **„Spielminuten“:** Echtzeit, solange das Spiel läuft (Pause/Menü ausnehmen?) oder Wanduhr (stateless, aber per Systemzeit manipulierbar)?
+3. **Mehrspieler:** nur Einzelspieler, oder auch TCP/IP/LAN? (Battle.net ist ausgeschlossen.)
+4. **Plugin-Zwang akzeptabel?** Spieler brauchen D2RLoader 1.3 + DLL (Windows). Soll das Reimagined-Team/Launcher das mittragen, oder ist ein reiner Daten-Fallback (B) vorzuziehen?
+5. **Preise/Währung:** Welche Runen, welche Anzahl je Item-Klasse? Runen sind nicht stapelbar (N Einzelitems werden verbraucht, max. 64 Eingänge je Transaktion).
+6. **Angebotsquellen:** Welche Basis-Items (Exceptional/Elite) und welche Unique-/Set-Pools? Duplikate (`AllowDuplicateUnique`) erlaubt?
+7. **Stadt/Act:** Eine feste Stadt oder je Act einen Händler? (Bei Variante A irrelevant; bei C entscheidend.)
+8. **Pflege:** Soll das Plugin ein eigenes Repo/Release neben `d2r-reimagined-mod` werden (empfohlen: SDK-only, keine RVAs), und wer pflegt es bei Reimagined-/Blizzard-Updates?
+
+### 11.9 Quellen und Grenzen (Abschnitt 11)
+
+- Repo: `data/global/excel/{npc,monstats,monpreset,actinfo,cubemain,misc,armor,weapons,gamble,storepage}.txt`, `lint/config.json`.
+- SDK: `PluginSDK/include/D2RLPlugin/{threads,overlay,console,core_exports,encounters,item,inventory,panels,widgets,shared_events,item_interactions,network,lifecycle_events}.h`, `README.md`.
+- Suite: `RuffnecKk-D2RLoader-Suite/{README.md,CHANGELOG.md,plugins/*,research/d2r/known-rvas.json,research/d2r/findings.md,research/cheat-spawn.md,research/d2rloader-1.3-public-audit.md}`; Offiziell: `D2RL-Plugins/{README.md,D2RPlugins.json,src/plugin-items/*,src/plugin-shared/include/plugin-shared.h}`.
+- **Nicht geprüft:** Lauffähigkeit irgendeines Plugins, Verhalten des nativen Vendors im Spiel, Drag-&-Drop-Verhalten auf Custom Pages, Kompatibilität mit den Reimagined-Layouts (Inventar-Layouts im Repo wurden bereits für ein Loader-Plugin angepasst, `86aae80e`), alle RVA-Angaben stammen aus fremder Research für Build 92777/93847 und sind **nicht selbst verifiziert**.
